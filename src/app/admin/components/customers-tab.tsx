@@ -202,22 +202,22 @@ export default function CustomersTab() {
   }
 
   const handleDeleteCustomer = async (customerId: string) => {
-    if (window.confirm('Bạn có chắc chắn muốn xóa khách hàng này?')) {
-      try {
-        await deleteDoc(doc(db, 'customers', customerId))
-        toast({
-          title: "Đã xóa khách hàng",
-          description: "Khách hàng đã được xóa thành công.",
-        })
-      } catch (error) {
-        console.error('Error deleting customer:', error)
-        toast({
-          title: "Lỗi",
-          description: "Không thể xóa khách hàng. Vui lòng thử lại.",
-          variant: "destructive",
-        })
-      }
-    }
+    // if (window.confirm('Bạn có chắc chắn muốn xóa khách hàng này?')) {
+    //   try {
+    //     await deleteDoc(doc(db, 'customers', customerId))
+    //     toast({
+    //       title: "Đã xóa khách hàng",
+    //       description: "Khách hàng đã được xóa thành công.",
+    //     })
+    //   } catch (error) {
+    //     console.error('Error deleting customer:', error)
+    //     toast({
+    //       title: "Lỗi",
+    //       description: "Không thể xóa khách hàng. Vui lòng thử lại.",
+    //       variant: "destructive",
+    //     })
+    //   }
+    // }
   }
 
   const fetchCustomerOrders = async (customerId: string) => {
