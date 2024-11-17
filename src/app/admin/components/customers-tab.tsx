@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { db } from '@/lib/firebase'
-import { collection, onSnapshot, query, orderBy, deleteDoc, doc } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, deleteDoc, doc, where } from 'firebase/firestore'
 import AddCustomerDialog from './add-customer-dialog'
 import CustomerDetailsDialog from './customer-details-dialog'
 
@@ -35,6 +35,7 @@ export default function CustomersTab() {
   const [showAddCustomer, setShowAddCustomer] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [showCustomerDetails, setShowCustomerDetails] = useState(false)
+  const [customerOrders, setCustomerOrders] = useState([])
 
   useEffect(() => {
     const q = query(collection(db, 'customers'), orderBy('name'))
@@ -66,6 +67,24 @@ export default function CustomersTab() {
         })
       }
     }
+  }
+
+  const fetchCustomerOrders = async (customerId: string) => {
+    const q = query(
+      collection(db, 'orders'),
+      where('customer', '==', customerId),
+      orderBy('date', 'desc')
+    )
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const ordersData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      }))
+      setCustomerOrders(ordersData)
+    })
+
+    return unsubscribe
   }
 
   const filteredCustomers = customers
@@ -246,6 +265,7 @@ export default function CustomersTab() {
                           size="icon"
                           onClick={() => {
                             setSelectedCustomer(customer)
+                            fetchCustomerOrders(customer.id)
                             setShowCustomerDetails(true)
                           }}
                         >
@@ -280,6 +300,7 @@ export default function CustomersTab() {
         open={showCustomerDetails}
         onOpenChange={setShowCustomerDetails}
         customer={selectedCustomer}
+        orders={customerOrders}
       />
     </div>
   )

@@ -74,10 +74,20 @@ const ORDER_STATUS = {
 }
 
 const PAYMENT_METHODS = {
+  cod: { label: 'Thanh toán khi nhận hàng', icon: CreditCard },
   cash: { label: 'Tiền mặt', icon: CreditCard },
   bank_transfer: { label: 'Chuyển khoản', icon: CreditCard },
   momo: { label: 'Ví MoMo', icon: CreditCard },
   vnpay: { label: 'VNPay', icon: CreditCard },
+}
+
+// Thêm constant cho trạng thái thanh toán
+const PAYMENT_STATUS = {
+  cod: { label: 'Thanh toán khi nhận hàng', color: 'warning' },
+  pending: { label: 'Chờ thanh toán', color: 'warning' },
+  paid: { label: 'Đã thanh toán', color: 'success' },
+  failed: { label: 'Thanh toán thất bại', color: 'destructive' },
+  refunded: { label: 'Đã hoàn tiền', color: 'default' }
 }
 
 // Thêm interface cho Customer
@@ -91,6 +101,7 @@ interface Customer {
 
 // Cập nhật interface OrderItem
 interface OrderItem {
+  isPrepared: boolean
   id: string
   name: string
   price: number
@@ -137,6 +148,19 @@ interface OrderDetailsDialogProps {
   }
 }
 
+const getPaymentStatus = (order: any) => {
+  if (order.status === 'cancelled') return 'failed'
+  if (order.status === 'completed') return 'paid'
+  if (order.paymentMethod === 'cod' || order.paymentMethod === 'cash' || order.paymentMethod === 'transfer') {
+    return order.status === 'completed' ? 'paid' : 'pending'
+  }
+  // Các phương thức thanh toán online
+  if (['momo', 'vnpay', 'bank_transfer'].includes(order.paymentMethod)) {
+    return order.status === 'pending' ? 'pending' : 'paid'
+  }
+  return 'pending'
+}
+
 export default function OrderDetailsDialog({
   open,
   onOpenChange,
@@ -171,8 +195,8 @@ export default function OrderDetailsDialog({
 
   if (!order) return null
 
-  const StatusIcon = ORDER_STATUS[order.status]?.icon || AlertCircle
-  const PaymentIcon = PAYMENT_METHODS[order.paymentMethod]?.icon || CreditCard
+  const StatusIcon = ORDER_STATUS[order.status as keyof typeof ORDER_STATUS]?.icon || AlertCircle
+  const PaymentIcon = PAYMENT_METHODS[order.paymentMethod as keyof typeof PAYMENT_METHODS]?.icon || CreditCard
 
   const updateOrderStatus = async () => {
     if (!newStatus || !statusNote) {
@@ -411,14 +435,15 @@ export default function OrderDetailsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-center justify-between">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto p-4 md:p-6">
+        <DialogHeader className="space-y-4">
+          {/* Header */}
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="space-y-1">
-              <DialogTitle className="text-2xl">
+              <DialogTitle className="text-xl md:text-2xl">
                 Đơn hàng #{order.id}
               </DialogTitle>
-              <div className="flex items-center space-x-2 text-sm text-gray-500">
+              <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
                 <Calendar className="w-4 h-4" />
                 <span>{new Date(order.date).toLocaleString('vi-VN')}</span>
                 <ChevronRight className="w-4 h-4" />
@@ -428,29 +453,36 @@ export default function OrderDetailsDialog({
                 </Badge>
               </div>
             </div>
-            <div className="flex space-x-2">
-              <Button variant="outline" size="sm">
+            
+            {/* Action Buttons */}
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" className="flex-1 md:flex-none">
                 <Download className="w-4 h-4 mr-2" />
-                Tải PDF
+                <span className="hidden md:inline">Tải PDF</span>
+                <span className="md:hidden">PDF</span>
               </Button>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="flex-1 md:flex-none">
                 <Printer className="w-4 h-4 mr-2" />
-                In đơn hàng
+                <span className="hidden md:inline">In đơn hàng</span>
+                <span className="md:hidden">In</span>
               </Button>
-              <Button size="sm">
+              <Button size="sm" className="flex-1 md:flex-none">
                 <Send className="w-4 h-4 mr-2" />
-                Gửi email
+                <span className="hidden md:inline">Gửi email</span>
+                <span className="md:hidden">Email</span>
               </Button>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="grid grid-cols-3 gap-6 mt-6">
-          {/* Thông tin khách hàng */}
+        {/* Main Content */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mt-6">
+          {/* Customer & Payment Info */}
           <div className="space-y-4">
+            {/* Customer Info */}
             <div>
               <Label className="text-base font-semibold">Thông tin khách hàng</Label>
-              <div className="mt-2 p-4 border rounded-lg space-y-3">
+              <div className="mt-2 p-3 md:p-4 border rounded-lg space-y-3">
                 <div className="flex items-center space-x-3">
                   {order.customerData?.avatar ? (
                     <img 
@@ -493,33 +525,37 @@ export default function OrderDetailsDialog({
               </div>
             </div>
 
-            {/* Thông tin thanh toán */}
+            {/* Payment Info */}
             <div>
               <Label className="text-base font-semibold">Thông tin thanh toán</Label>
-              <div className="mt-2 p-4 border rounded-lg space-y-3">
+              <div className="mt-2 p-3 md:p-4 border rounded-lg space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
-                    <PaymentIcon className="w-4 h-4 text-gray-500" />
+                    {React.createElement(PAYMENT_METHODS[order.paymentMethod]?.icon || CreditCard, {
+                      className: "w-4 h-4 text-gray-500"
+                    })}
                     <span>Phương thức:</span>
                   </div>
                   <span className="font-medium">
-                    {PAYMENT_METHODS[order.paymentMethod]?.label}
+                    {PAYMENT_METHODS[order.paymentMethod]?.label || 'Không xác định'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-gray-600">
                   <span>Trạng thái:</span>
-                  <Badge variant="success">Đã thanh toán</Badge>
+                  <Badge variant={PAYMENT_STATUS[getPaymentStatus(order)]?.color}>
+                    {PAYMENT_STATUS[getPaymentStatus(order)]?.label}
+                  </Badge>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Chi tiết đơn hàng */}
-          <div className="col-span-2 space-y-6">
-            {/* Sản phẩm */}
+          {/* Order Details */}
+          <div className="md:col-span-2 space-y-4">
+            {/* Products Table */}
             <div>
               <Label className="text-base font-semibold">Chi tiết sản phẩm</Label>
-              <div className="mt-2 border rounded-lg overflow-hidden">
+              <div className="mt-2 border rounded-lg overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -532,7 +568,7 @@ export default function OrderDetailsDialog({
                       </TableHead>
                       <TableHead>Sản phẩm</TableHead>
                       <TableHead className="text-right">Đơn giá</TableHead>
-                      <TableHead className="text-center">Số lượng</TableHead>
+                      <TableHead className="text-center">SL</TableHead>
                       <TableHead className="text-right">Thành tiền</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -547,8 +583,8 @@ export default function OrderDetailsDialog({
                           />
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center space-x-3">
-                            <div className="h-10 w-10 rounded-md bg-gray-100 flex items-center justify-center">
+                          <div className="flex items-center gap-2">
+                            <div className="h-10 w-10 rounded-md bg-gray-100 flex-shrink-0">
                               {item.image ? (
                                 <img 
                                   src={item.image} 
@@ -556,51 +592,48 @@ export default function OrderDetailsDialog({
                                   className="h-full w-full object-cover rounded-md"
                                 />
                               ) : (
-                                <Package className="h-5 w-5 text-gray-400" />
+                                <Package className="h-5 w-5 m-auto text-gray-400" />
                               )}
                             </div>
-                            <div>
-                              <div className="font-medium flex items-center space-x-2">
-                                <span>{item.name}</span>
-                                {preparedItems[item.id] && (
-                                  <Badge variant="success" className="text-xs">
-                                    <CheckCircle2 className="w-3 h-3 mr-1" />
-                                    Đã chuẩn bị
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="text-sm text-gray-500">SKU: {item.sku}</div>
+                            <div className="min-w-0">
+                              <div className="font-medium truncate">{item.name}</div>
+                              {preparedItems[item.id] && (
+                                <Badge variant="success" className="text-xs mt-1">
+                                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                                  Đã chuẩn bị
+                                </Badge>
+                              )}
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right">
-                          {item.price.toLocaleString('vi-VN')} VNĐ
+                        <TableCell className="text-right whitespace-nowrap">
+                          {item.price.toLocaleString('vi-VN')}đ
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center justify-center space-x-2">
+                          <div className="flex items-center justify-center gap-1">
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8"
+                              className="h-7 w-7"
                               onClick={() => updateItemQuantity(item.id, item.quantity - 1)}
                               disabled={isUpdating || item.quantity <= 1}
                             >
-                              <Minus className="h-4 w-4" />
+                              <Minus className="h-3 w-3" />
                             </Button>
-                            <span className="w-12 text-center">{item.quantity}</span>
+                            <span className="w-8 text-center">{item.quantity}</span>
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8"
+                              className="h-7 w-7"
                               onClick={() => updateItemQuantity(item.id, item.quantity + 1)}
                               disabled={isUpdating}
                             >
-                              <Plus className="h-4 w-4" />
+                              <Plus className="h-3 w-3" />
                             </Button>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {(item.price * item.quantity).toLocaleString('vi-VN')} VNĐ
+                        <TableCell className="text-right font-medium whitespace-nowrap">
+                          {(item.price * item.quantity).toLocaleString('vi-VN')}đ
                         </TableCell>
                       </TableRow>
                     ))}
@@ -609,8 +642,8 @@ export default function OrderDetailsDialog({
               </div>
             </div>
 
-            {/* Tổng tiền */}
-            <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+            {/* Order Summary */}
+            <div className="bg-gray-50 p-3 md:p-4 rounded-lg space-y-2">
               <div className="flex justify-between text-gray-600">
                 <span>Tạm tính:</span>
                 <span>{(localOrder?.subtotal || 0).toLocaleString('vi-VN')} VNĐ</span>
@@ -629,71 +662,73 @@ export default function OrderDetailsDialog({
                 <span>{(localOrder?.total || 0).toLocaleString('vi-VN')} VNĐ</span>
               </div>
             </div>
-            
 
-            {/* Chuẩn bị hàng */}
-            <div className="flex items-center space-x-2 p-4 border rounded-lg">
-    <Checkbox
-      id="prepared"
-      checked={isPrepared}
-      onCheckedChange={updatePreparedStatus}
-      disabled={isUpdating}
-    />
-    <div className="grid gap-1.5 leading-none">
-      <label
-        htmlFor="prepared"
-        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-      >
-        Đã chuẩn bị hàng
-      </label>
-      <p className="text-sm text-muted-foreground">
-        {isPrepared 
-          ? "Đơn hàng đã được chuẩn bị xong và sẵn sàng giao" 
-          : "Đơn hàng chưa được chuẩn bị"
-        }
-      </p>
-    </div>
-    {isPrepared && (
-      <Badge variant="success" className="ml-auto">
-        <CheckCircle2 className="w-3 h-3 mr-1" />
-        Đã chuẩn bị
-      </Badge>
-    )}
-  </div>
-            {/* Cập nhật trạng thái */}
-            <div>
-              <Label className="text-base font-semibold">Cập nhật trạng thái</Label>
-              <div className="mt-2 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <Select value={newStatus} onValueChange={setNewStatus}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn trạng thái mới" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(ORDER_STATUS).map(([value, { label }]) => (
-                        <SelectItem key={value} value={value}>{label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button 
-                    onClick={updateOrderStatus} 
-                    disabled={isUpdating}
-                  >
-                    Cập nhật
-                  </Button>
-                </div>
-                <Textarea
-                  placeholder="Ghi chú cập nhật trạng thái..."
-                  value={statusNote}
-                  onChange={(e) => setStatusNote(e.target.value)}
+            {/* Order Status Updates */}
+            <div className="space-y-4">
+              {/* Order Status Update */}
+              <div className="flex items-center space-x-2 p-4 border rounded-lg">
+                <Checkbox
+                  id="prepared"
+                  checked={isPrepared}
+                  onCheckedChange={updatePreparedStatus}
+                  disabled={isUpdating}
                 />
+                <div className="grid gap-1.5 leading-none">
+                  <label
+                    htmlFor="prepared"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                  >
+                    Đã chuẩn bị hàng
+                  </label>
+                  <p className="text-sm text-muted-foreground">
+                    {isPrepared 
+                      ? "Đơn hàng đã được chuẩn bị xong và sẵn sàng giao" 
+                      : "Đơn hàng chưa được chuẩn bị"
+                    }
+                  </p>
+                </div>
+                {isPrepared && (
+                  <Badge variant="success" className="ml-auto">
+                    <CheckCircle2 className="w-3 h-3 mr-1" />
+                    Đã chuẩn bị
+                  </Badge>
+                )}
+              </div>
+              {/* Order Status Update */}
+              <div>
+                <Label className="text-base font-semibold">Cập nhật trạng thái</Label>
+                <div className="mt-2 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <Select value={newStatus} onValueChange={setNewStatus}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Chọn trạng thái mới" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(ORDER_STATUS).map(([value, { label }]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button 
+                      onClick={updateOrderStatus} 
+                      disabled={isUpdating}
+                    >
+                      Cập nhật
+                    </Button>
+                  </div>
+                  <Textarea
+                    placeholder="Ghi chú cập nhật trạng thái..."
+                    value={statusNote}
+                    onChange={(e) => setStatusNote(e.target.value)}
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Lịch sử đơn hàng */}
+            {/* Order History */}
             <div>
               <Label className="text-base font-semibold">Lịch sử đơn hàng</Label>
-              <div className="mt-2 space-y-3">
+              <div className="mt-2 space-y-3 max-h-[300px] overflow-y-auto">
                 {order.history?.map((event, index) => (
                   <div key={index} className="flex items-start space-x-3 text-sm">
                     <div className="mt-1">
@@ -721,7 +756,7 @@ export default function OrderDetailsDialog({
         </div>
 
         <DialogFooter className="mt-6">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full md:w-auto">
             Đóng
           </Button>
         </DialogFooter>

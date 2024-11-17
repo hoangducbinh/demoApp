@@ -117,7 +117,7 @@ export default function AddProductDialog({
                   src={newProduct.image} 
                   alt="Preview" 
                   className="w-full h-full object-cover rounded-lg"
-                  onError={(e) => e.target.src = '/placeholder.png'}
+                  onError={(e: any) => e.target.src = '/placeholder.jpg'}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-gray-100 rounded-lg">

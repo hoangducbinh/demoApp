@@ -17,14 +17,20 @@ interface CustomerDetailsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   customer: any
+  orders: any[]
 }
 
 export default function CustomerDetailsDialog({
   open,
   onOpenChange,
-  customer
+  customer,
+  orders
 }: CustomerDetailsDialogProps) {
   if (!customer) return null
+
+  const totalOrders = orders?.length || 0
+  const totalSpent = orders?.reduce((sum, order) => sum + (order.total || 0), 0) || 0
+  const completedOrders = orders?.filter(order => order.status === 'completed').length || 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -73,12 +79,15 @@ export default function CustomerDetailsDialog({
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <p className="text-sm text-gray-600">Số đơn hàng</p>
-                  <p className="text-2xl font-bold">{customer.orderCount || 0}</p>
+                  <p className="text-2xl font-bold">{totalOrders}</p>
+                  <p className="text-sm text-gray-500">
+                    {completedOrders} đơn thành công
+                  </p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <p className="text-sm text-gray-600">Tổng chi tiêu</p>
                   <p className="text-2xl font-bold text-green-600">
-                    {(customer.totalSpent || 0).toLocaleString('vi-VN')} VNĐ
+                    {totalSpent.toLocaleString('vi-VN')} VNĐ
                   </p>
                 </div>
               </div>
@@ -97,12 +106,13 @@ export default function CustomerDetailsDialog({
                     <TableHead>Ngày đặt</TableHead>
                     <TableHead className="text-right">Tổng tiền</TableHead>
                     <TableHead>Trạng thái</TableHead>
+                    <TableHead>Thanh toán</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {customer.orders?.map((order) => (
+                  {orders?.map((order) => (
                     <TableRow key={order.id}>
-                      <TableCell className="font-medium">#{order.id}</TableCell>
+                      <TableCell className="font-medium">#{order.id.slice(-6)}</TableCell>
                       <TableCell>{new Date(order.date).toLocaleDateString('vi-VN')}</TableCell>
                       <TableCell className="text-right">
                         {order.total.toLocaleString('vi-VN')} VNĐ
@@ -113,14 +123,24 @@ export default function CustomerDetailsDialog({
                           order.status === 'cancelled' ? 'destructive' :
                           'secondary'
                         }>
-                          {order.status}
+                          {order.status === 'completed' ? 'Hoàn thành' :
+                           order.status === 'cancelled' ? 'Đã hủy' :
+                           order.status === 'pending' ? 'Chờ xử lý' : 
+                           order.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={
+                          order.paymentMethod === 'cash' ? 'secondary' : 'secondary'
+                        }>
+                          {order.paymentMethod === 'cash' ? 'Tiền mặt' : 'Tiền mặt'}
                         </Badge>
                       </TableCell>
                     </TableRow>
                   ))}
-                  {(!customer.orders || customer.orders.length === 0) && (
+                  {(!orders || orders.length === 0) && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-gray-500">
+                      <TableCell colSpan={5} className="text-center text-gray-500">
                         Chưa có đơn hàng nào
                       </TableCell>
                     </TableRow>

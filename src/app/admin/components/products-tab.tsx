@@ -9,11 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Package, FolderOpen, AlertCircle, DollarSign, Plus, Search, Edit2, Trash2, FileSpreadsheet } from 'lucide-react'
+import { Package, FolderOpen, AlertCircle, DollarSign, Plus, Search, Edit2, Trash2, FileSpreadsheet, FolderPlus } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { db } from '@/lib/firebase'
-import { collection, onSnapshot, addDoc } from 'firebase/firestore'
+import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import AddProductDialog from './add-product-dialog'
+import AddCategoryDialog from './add-category-dialog'
 
 export default function ProductsTab() {
   const [showAddProduct, setShowAddProduct] = useState(false)
@@ -30,6 +31,14 @@ export default function ProductsTab() {
     stock: 0,
     image: ''
   })
+
+  const [showAddCategory, setShowAddCategory] = useState(false)
+  const [newCategory, setNewCategory] = useState({ name: '' })
+
+  const [categoryName, setCategoryName] = useState('')
+
+  const [editingProduct, setEditingProduct] = useState(null)
+  const [editingValue, setEditingValue] = useState("")
 
   useEffect(() => {
     // Lấy danh sách sản phẩm
@@ -111,6 +120,94 @@ export default function ProductsTab() {
     }
   }
 
+  const addCategory = async () => {
+    try {
+      if (!categoryName.trim()) {
+        toast({
+          title: "Không thể thêm danh mục",
+          description: "Vui lòng nhập tên danh mục",
+          variant: "destructive",
+        })
+        return
+      }
+
+      await addDoc(collection(db, 'categories'), {
+        name: categoryName.trim(),
+        createdAt: new Date().toISOString()
+      })
+
+      setCategoryName('')
+      toast({
+        title: "Thành công",
+        description: `Danh mục ${categoryName} đã được thêm.`,
+      })
+    } catch (error) {
+      console.error('Error adding category:', error)
+      toast({
+        title: "Lỗi",
+        description: "Không thể thêm danh mục. Vui lòng thử lại",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const deleteCategory = async (categoryId: string, categoryName: string) => {
+    try {
+      // Kiểm tra xem có sản phẩm nào đang sử dụng danh mục này không
+      const productsInCategory = products.filter(p => p.category === categoryName)
+      if (productsInCategory.length > 0) {
+        toast({
+          title: "Không thể xóa danh mục",
+          description: "Vẫn còn sản phẩm trong danh mục này",
+          variant: "destructive",
+        })
+        return
+      }
+
+      await deleteDoc(doc(db, 'categories', categoryId))
+      toast({
+        title: "Thành công",
+        description: `Đã xóa danh mục ${categoryName}`,
+      })
+    } catch (error) {
+      console.error('Error deleting category:', error)
+      toast({
+        title: "Lỗi",
+        description: "Không thể xóa danh mục. Vui lòng thử lại",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const updateProduct = async (productId: string, updates: any) => {
+    try {
+      const productRef = doc(db, 'products', productId)
+      
+      // Cập nhật trong Firestore
+      await updateDoc(productRef, {
+        ...updates,
+        updatedAt: new Date().toISOString()
+      })
+
+      // Hiển thị thông báo thành công
+      toast({
+        title: "Cập nhật thành công",
+        description: "Thông tin sản phẩm đã được cập nhật",
+      })
+
+      // Reset trạng thái chỉnh sửa
+      setEditingProduct(null)
+
+    } catch (error) {
+      console.error('Error updating product:', error)
+      toast({
+        title: "Lỗi",
+        description: "Không thể cập nhật sản phẩm. Vui lòng thử lại",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Header với thống kê */}
@@ -175,6 +272,10 @@ export default function ProductsTab() {
                 <FileSpreadsheet className="h-4 w-4 mr-2" />
                 Xuất Excel
               </Button>
+              <Button variant="outline" onClick={() => setShowAddCategory(true)}>
+                <FolderPlus className="h-4 w-4 mr-2" />
+                Thêm danh mục
+              </Button>
               <Button onClick={() => setShowAddProduct(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Thêm sản phẩm
@@ -218,7 +319,7 @@ export default function ProductsTab() {
                 <SelectContent>
                   <SelectItem value="name_asc">Tên A-Z</SelectItem>
                   <SelectItem value="name_desc">Tên Z-A</SelectItem>
-                  <SelectItem value="price_asc">Giá tăng d���n</SelectItem>
+                  <SelectItem value="price_asc">Giá tăng dn</SelectItem>
                   <SelectItem value="price_desc">Giá giảm dần</SelectItem>
                   <SelectItem value="stock_asc">Tồn kho ít</SelectItem>
                   <SelectItem value="stock_desc">Tồn kho nhiều</SelectItem>
@@ -231,50 +332,120 @@ export default function ProductsTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[50px]">
-                  <Checkbox />
-                </TableHead>
                 <TableHead>Sản phẩm</TableHead>
                 <TableHead>Danh mục</TableHead>
+                <TableHead>Mã SKU</TableHead>
                 <TableHead className="text-center">Tồn kho</TableHead>
                 <TableHead className="text-right">Giá bán</TableHead>
                 <TableHead className="text-center">Trạng thái</TableHead>
-                <TableHead className="text-right">Thao tác</TableHead>
+                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {products.map(product => (
                 <TableRow key={product.id}>
                   <TableCell>
-                    <Checkbox />
-                  </TableCell>
-                  <TableCell>
                     <div className="flex items-center space-x-3">
-                      <img 
-                        src={product.image || '/placeholder.png'} 
-                        alt={product.name}
-                        className="h-10 w-10 rounded-md object-cover"
-                      />
+                      <div className="w-12 h-12 rounded-lg border overflow-hidden">
+                        {product.image ? (
+                          <img 
+                            src={product.image} 
+                            alt={product.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                            <Package className="h-6 w-6 text-gray-400" />
+                          </div>
+                        )}
+                      </div>
                       <div>
                         <p className="font-medium">{product.name}</p>
-                        <p className="text-sm text-gray-500">SKU: {product.sku}</p>
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{product.category}</Badge>
-                  </TableCell>
+                  <TableCell>{product.category}</TableCell>
+                  <TableCell>{product.sku}</TableCell>
+                  
                   <TableCell className="text-center">
                     <div className="space-y-1">
-                      <p className="font-medium">{product.stock}</p>
+                      {editingProduct === `${product.id}-stock` ? (
+                        <Input
+                          type="number"
+                          value={editingValue}
+                          className="w-20 text-center"
+                          onChange={(e) => setEditingValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const newStock = parseInt(editingValue)
+                              if (!isNaN(newStock) && newStock >= 0) {
+                                updateProduct(product.id, { stock: newStock })
+                              }
+                            }
+                          }}
+                          onBlur={() => {
+                            const newStock = parseInt(editingValue)
+                            if (!isNaN(newStock) && newStock >= 0) {
+                              updateProduct(product.id, { stock: newStock })
+                            }
+                            setEditingProduct(null)
+                          }}
+                          autoFocus
+                        />
+                      ) : (
+                        <p 
+                          className="font-medium cursor-pointer hover:text-blue-600"
+                          onClick={() => {
+                            setEditingProduct(`${product.id}-stock`)
+                            setEditingValue(product.stock.toString())
+                          }}
+                        >
+                          {product.stock}
+                        </p>
+                      )}
                       {product.stock === 0 && (
                         <Badge variant="destructive">Hết hàng</Badge>
                       )}
                     </div>
                   </TableCell>
+
                   <TableCell className="text-right font-medium">
-                    {product.price.toLocaleString('vi-VN')} VNĐ
+                    {editingProduct === `${product.id}-price` ? (
+                      <Input
+                        type="number"
+                        value={editingValue}
+                        className="w-32 text-right"
+                        onChange={(e) => setEditingValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const newPrice = parseFloat(editingValue)
+                            if (!isNaN(newPrice) && newPrice >= 0) {
+                              updateProduct(product.id, { price: newPrice })
+                            }
+                          }
+                        }}
+                        onBlur={() => {
+                          const newPrice = parseFloat(editingValue)
+                          if (!isNaN(newPrice) && newPrice >= 0) {
+                            updateProduct(product.id, { price: newPrice })
+                          }
+                          setEditingProduct(null)
+                        }}
+                        autoFocus
+                      />
+                    ) : (
+                      <p 
+                        className="cursor-pointer hover:text-blue-600"
+                        onClick={() => {
+                          setEditingProduct(`${product.id}-price`)
+                          setEditingValue(product.price.toString())
+                        }}
+                      >
+                        {product.price.toLocaleString('vi-VN')} VNĐ
+                      </p>
+                    )}
                   </TableCell>
+
                   <TableCell className="text-center">
                     <Badge variant={product.status === 'active' ? 'success' : 'secondary'}>
                       {product.status === 'active' ? 'Đang bán' : 'Ngừng bán'}
@@ -296,6 +467,62 @@ export default function ProductsTab() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Category Management */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Quản lý danh mục</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Input 
+                placeholder="Tên danh mục mới" 
+                value={categoryName}
+                onChange={(e) => setCategoryName(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && addCategory()}
+              />
+              <Button onClick={addCategory}>
+                Thêm danh mục
+              </Button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {categories.map(category => (
+                <Card key={category.id}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">{category.name}</CardTitle>
+                      <div className="flex space-x-2">
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => deleteCategory(category.id, category.name)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-gray-500">
+                      {products.filter(p => p.category === category.name).length} sản phẩm
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <AddCategoryDialog
+        open={showAddCategory}
+        onOpenChange={setShowAddCategory}
+        newCategory={newCategory}
+        setNewCategory={setNewCategory}
+        addCategory={addCategory}
+      />
 
       <AddProductDialog
         open={showAddProduct}

@@ -10,14 +10,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Search, Plus, MinusCircle, PlusCircle, Trash2, X, ShoppingCart } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { db } from '@/lib/firebase'
-import { collection, onSnapshot, addDoc, doc, updateDoc, increment } from 'firebase/firestore'
+import { collection, onSnapshot, addDoc, doc, updateDoc, increment, writeBatch } from 'firebase/firestore'
 
 interface Order {
   customer: string | null
   items: any[]
   subtotal: number
   discount: number
-  tax: number
   total: number
   note: string
   paymentMethod: string
@@ -32,19 +31,17 @@ export default function SalesTab() {
   const [productSearch, setProductSearch] = useState("")
   const [customerSearch, setCustomerSearch] = useState("")
   const [orderNote, setOrderNote] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState("")
+  const [paymentMethod, setPaymentMethod] = useState("cod")
   const [discountAmount, setDiscountAmount] = useState(0)
-  const taxRate = 0.1 // 10% VAT
 
   const [order, setOrder] = useState<Order>({
     customer: null,
     items: [],
     subtotal: 0,
     discount: 0,
-    tax: 0,
     total: 0,
     note: "",
-    paymentMethod: "",
+    paymentMethod: "cod",
     status: "pending"
   })
 
@@ -152,18 +149,29 @@ export default function SalesTab() {
         })
         return
       }
+
+      // Kiểm tra số lượng tồn kho
+      for (const item of order.items) {
+        const product = products.find(p => p.id === item.id)
+        if (!product || product.stock < item.quantity) {
+          toast({
+            title: "Lỗi số lượng",
+            description: `Sản phẩm ${item.name} không đủ số lượng trong kho`,
+            variant: "destructive",
+          })
+          return
+        }
+      }
       
       const subtotal = order.items.reduce((sum, item) => sum + item.price * item.quantity, 0)
       const discount = (discountAmount / 100) * subtotal
-      const taxableAmount = subtotal - discount
-      const tax = taxableAmount * taxRate
+      const total = subtotal - discount
       
       const newOrder = {
         ...order,
         subtotal,
         discount,
-        tax,
-        total: taxableAmount + tax,
+        total,
         note: orderNote,
         paymentMethod,
         status: "pending",
@@ -178,12 +186,23 @@ export default function SalesTab() {
       
       const docRef = await addDoc(collection(db, 'orders'), newOrder)
       
-      // Update customer info
+      // Cập nhật số lượng tồn kho
+      const batch = writeBatch(db)
+      order.items.forEach(item => {
+        const productRef = doc(db, 'products', item.id)
+        batch.update(productRef, {
+          stock: increment(-item.quantity)
+        })
+      })
+      
+      // Cập nhật thông tin khách hàng
       const customerRef = doc(db, 'customers', order.customer)
-      await updateDoc(customerRef, {
+      batch.update(customerRef, {
         orderCount: increment(1),
         totalSpent: increment(newOrder.total)
       })
+
+      await batch.commit()
 
       // Reset form
       setOrder({
@@ -191,14 +210,12 @@ export default function SalesTab() {
         items: [],
         subtotal: 0,
         discount: 0,
-        tax: 0,
         total: 0,
         note: "",
-        paymentMethod: "",
+        paymentMethod: "cod",
         status: "pending"
       })
       setOrderNote("")
-      setPaymentMethod("")
       setDiscountAmount(0)
       
       toast({
@@ -217,6 +234,144 @@ export default function SalesTab() {
 
   return (
     <div className="space-y-4 p-2 md:p-4">
+      {/* Order Details - Show above everything on mobile */}
+      <div className={`lg:hidden fixed inset-0 z-50 bg-white overflow-auto ${showCart ? 'block' : 'hidden'}`}>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg md:text-xl">Thông tin đơn hàng</CardTitle>
+              <Button className="lg:hidden" variant="ghost" onClick={() => setShowCart(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="space-y-2">
+              <Select onValueChange={(value) => setOrder({ ...order, customer: value })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Chọn khách hàng" />
+                </SelectTrigger>
+                <SelectContent>
+                  {customers.map(customer => (
+                    <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                placeholder="Tìm kiếm khách hàng..."
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+              />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Order Items Table */}
+            <div className="border rounded-lg overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Sản phẩm</TableHead>
+                    <TableHead className="text-right hidden md:table-cell">Đơn giá</TableHead>
+                    <TableHead className="text-center">SL</TableHead>
+                    <TableHead className="text-right">Thành tiền</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {order.items.map(item => (
+                    <TableRow key={item.id}>
+                      <TableCell className="font-medium">
+                        {item.name}
+                        <span className="block text-sm text-gray-500 md:hidden">
+                          {item.price.toLocaleString('vi-VN')} VNĐ
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right hidden md:table-cell">
+                        {item.price.toLocaleString('vi-VN')}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-center space-x-1">
+                          <Button variant="outline" size="sm" onClick={() => updateQuantity(item.id, item.quantity - 1)}>
+                            <MinusCircle className="h-3 w-3" />
+                          </Button>
+                          <span className="w-8 text-center">{item.quantity}</span>
+                          <Button variant="outline" size="sm" onClick={() => updateQuantity(item.id, item.quantity + 1)}>
+                            <PlusCircle className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {(item.price * item.quantity).toLocaleString('vi-VN')}
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="sm" onClick={() => removeFromOrder(item.id)}>
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Payment and Discount */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Giảm giá (%)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={discountAmount}
+                  onChange={(e) => setDiscountAmount(Number(e.target.value))}
+                />
+              </div>
+              <div>
+                <Label>Phương thức thanh toán</Label>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Chọn phương thức thanh toán" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cod">Thanh toán khi nhận hàng</SelectItem>
+                    <SelectItem value="cash">Tiền mặt</SelectItem>
+                    <SelectItem value="transfer">Chuyển khoản</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Order Note */}
+            <div>
+              <Label>Ghi chú</Label>
+              <Input
+                value={orderNote}
+                onChange={(e) => setOrderNote(e.target.value)}
+                placeholder="Nhập ghi chú cho đơn hàng..."
+              />
+            </div>
+
+            {/* Order Summary */}
+            <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+              <div className="flex justify-between">
+                <span>Tạm tính:</span>
+                <span>{order.subtotal?.toLocaleString('vi-VN')} VNĐ</span>
+              </div>
+              <div className="flex justify-between text-gray-600">
+                <span>Giảm giá ({discountAmount}%):</span>
+                <span>-{((order.subtotal || 0) * (discountAmount / 100)).toLocaleString('vi-VN')} VNĐ</span>
+              </div>
+              <div className="flex justify-between font-bold text-lg pt-2 border-t">
+                <span>Tổng cộng:</span>
+                <span>{((order.subtotal || 0) * (1 - discountAmount / 100)).toLocaleString('vi-VN')} VNĐ</span>
+              </div>
+            </div>
+          </CardContent>
+          <CardFooter className="flex flex-col sm:flex-row gap-2">
+            <Button variant="outline" className="w-full sm:w-auto">Hủy</Button>
+            <Button onClick={createOrder} className="w-full sm:w-auto">Tạo đơn hàng</Button>
+          </CardFooter>
+        </Card>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Products List */}
         <div className="lg:col-span-7 space-y-4">
@@ -286,8 +441,8 @@ export default function SalesTab() {
           </Card>
         </div>
 
-        {/* Order Details */}
-        <div className={`lg:col-span-5 space-y-4 ${showCart ? 'block' : 'hidden lg:block'}`}>
+        {/* Order Details - Desktop version */}
+        <div className="hidden lg:block lg:col-span-5 space-y-4">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -367,20 +522,6 @@ export default function SalesTab() {
               {/* Payment and Discount */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label>Phương thức thanh toán</Label>
-                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn phương thức" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cash">Thanh toán khi nhận hàng</SelectItem>
-                      <SelectItem value="bank_transfer">Chuyển khoản</SelectItem>
-                      <SelectItem value="card">Thẻ tín dụng</SelectItem>
-                      <SelectItem value="momo">Ví MoMo</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
                   <Label>Giảm giá (%)</Label>
                   <Input
                     type="number"
@@ -389,6 +530,19 @@ export default function SalesTab() {
                     value={discountAmount}
                     onChange={(e) => setDiscountAmount(Number(e.target.value))}
                   />
+                </div>
+                <div>
+                  <Label>Phương thức thanh toán</Label>
+                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Chọn phương thức thanh toán" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cod">Thanh toán khi nhận hàng</SelectItem>
+                      <SelectItem value="cash">Tiền mặt</SelectItem>
+                      <SelectItem value="transfer">Chuyển khoản</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -412,13 +566,9 @@ export default function SalesTab() {
                   <span>Giảm giá ({discountAmount}%):</span>
                   <span>-{((order.subtotal || 0) * (discountAmount / 100)).toLocaleString('vi-VN')} VNĐ</span>
                 </div>
-                <div className="flex justify-between text-gray-600">
-                  <span>VAT (10%):</span>
-                  <span>{((order.subtotal || 0) * (1 - discountAmount / 100) * taxRate).toLocaleString('vi-VN')} VNĐ</span>
-                </div>
                 <div className="flex justify-between font-bold text-lg pt-2 border-t">
                   <span>Tổng cộng:</span>
-                  <span>{((order.subtotal || 0) * (1 - discountAmount / 100) * (1 + taxRate)).toLocaleString('vi-VN')} VNĐ</span>
+                  <span>{((order.subtotal || 0) * (1 - discountAmount / 100)).toLocaleString('vi-VN')} VNĐ</span>
                 </div>
               </div>
             </CardContent>
