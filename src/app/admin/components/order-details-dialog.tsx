@@ -39,6 +39,8 @@ import { useToast } from '@/hooks/use-toast'
 import { db } from '@/lib/firebase'
 import { doc, updateDoc } from 'firebase/firestore'
 import { Checkbox } from "@/components/ui/checkbox"
+import { auth } from '@/lib/firebase'
+import { onAuthStateChanged } from 'firebase/auth'
 
 const ORDER_STATUS = {
   pending: { 
@@ -105,7 +107,8 @@ interface OrderItem {
   id: string
   name: string
   price: number
-  quantity: number
+  quantity: number,
+  image: string
 }
 
 // Cập nhật interface OrderHistory
@@ -123,6 +126,17 @@ interface OrderDetailsDialogProps {
   order: {
     id: string
     customer: string
+    customerData?: {
+      id: string
+      name: string
+      email: string
+      phone: string
+      type: 'normal' | 'vip'
+      status: 'active' | 'inactive'
+      address: string
+      avatar?: string
+      note?: string
+    }
     items: OrderItem[]
     subtotal: number
     discount: number
@@ -134,7 +148,13 @@ interface OrderDetailsDialogProps {
     date: string
     isPrepared?: boolean
     history?: OrderHistory[]
-  }
+  } | null
+}
+
+// Định nghĩa interface cho LocalOrder
+interface LocalOrder {
+  id?: string
+  customer?: string
   customerData?: {
     id: string
     name: string
@@ -146,6 +166,17 @@ interface OrderDetailsDialogProps {
     avatar?: string
     note?: string
   }
+  items: OrderItem[]
+  subtotal: number
+  discount: number
+  tax: number
+  total: number
+  note?: string
+  paymentMethod?: string
+  status?: string
+  date?: string
+  isPrepared?: boolean
+  history?: OrderHistory[]
 }
 
 const getPaymentStatus = (order: any) => {
@@ -165,13 +196,12 @@ export default function OrderDetailsDialog({
   open,
   onOpenChange,
   order,
-  customerData
 }: OrderDetailsDialogProps) {
   const { toast } = useToast()
   const [isUpdating, setIsUpdating] = useState(false)
   const [newStatus, setNewStatus] = useState("")
   const [statusNote, setStatusNote] = useState("")
-  const [localOrder, setLocalOrder] = useState(order || {
+  const [localOrder, setLocalOrder] = useState<LocalOrder>(order || {
     items: [],
     subtotal: 0,
     discount: 0,
@@ -186,6 +216,7 @@ export default function OrderDetailsDialog({
       [item.id]: item.isPrepared || false
     }), {}) || {}
   )
+  const [currentUser, setCurrentUser] = useState<string>("Admin")
 
   useEffect(() => {
     if (order) {
@@ -193,37 +224,48 @@ export default function OrderDetailsDialog({
     }
   }, [order])
 
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        if (user.displayName) {
+          setCurrentUser(user.displayName)
+        } else if (user.email) {
+          // Lấy phần trước @gmail.com và capitalize chữ cái đầu
+          const username = user.email.split('@')[0]
+          const capitalizedUsername = username.charAt(0).toUpperCase() + username.slice(1)
+          setCurrentUser(capitalizedUsername)
+        }
+      }
+    })
+
+    return () => unsubscribe()
+  }, [])
+
   if (!order) return null
 
   const StatusIcon = ORDER_STATUS[order.status as keyof typeof ORDER_STATUS]?.icon || AlertCircle
   const PaymentIcon = PAYMENT_METHODS[order.paymentMethod as keyof typeof PAYMENT_METHODS]?.icon || CreditCard
 
   const updateOrderStatus = async () => {
-    if (!newStatus || !statusNote) {
-      toast({
-        title: "Thiếu thông tin",
-        description: "Vui lòng chọn trạng thái và nhập ghi chú",
-        variant: "destructive"
-      })
-      return
-    }
-
-    setIsUpdating(true)
+    if (!order || !newStatus) return
+    
     try {
+      setIsUpdating(true)
       const orderRef = doc(db, 'orders', order.id)
-      const newHistory = [
+      
+      const updatedHistory = [
         ...(order.history || []),
         {
-          status: newStatus,
-          note: statusNote,
           date: new Date().toISOString(),
-          updatedBy: "Admin" // Thay thế bằng thông tin người dùng thực
+          status: newStatus,
+          note: statusNote || `Đơn hàng được chuyển sang trạng thái ${ORDER_STATUS[newStatus as keyof typeof ORDER_STATUS]?.label.toLowerCase()}`,
+          updatedBy: currentUser // Sử dụng currentUser thay vì "Admin"
         }
       ]
 
       await updateDoc(orderRef, {
         status: newStatus,
-        history: newHistory
+        history: updatedHistory
       })
 
       toast({
@@ -234,14 +276,15 @@ export default function OrderDetailsDialog({
       setNewStatus("")
       setStatusNote("")
     } catch (error) {
-      console.error('Error updating order:', error)
+      console.error('Error updating order status:', error)
       toast({
         title: "Lỗi",
         description: "Không thể cập nhật trạng thái đơn hàng",
-        variant: "destructive"
+        variant: "destructive",
       })
+    } finally {
+      setIsUpdating(false)
     }
-    setIsUpdating(false)
   }
 
   const updateItemQuantity = async (itemId: string, newQuantity: number) => {
@@ -260,7 +303,7 @@ export default function OrderDetailsDialog({
       items: updatedItems,
       subtotal,
       tax,
-      total
+      total,
     }))
 
     setIsUpdating(true)
@@ -301,7 +344,7 @@ export default function OrderDetailsDialog({
             date: new Date().toISOString(),
             status: order.status,
             note: checked ? "Đã chuẩn bị hàng" : "Hủy chuẩn bị hàng",
-            updatedBy: "Admin" // Thay thế bằng thông tin người dùng thực
+            updatedBy: currentUser // Thay thế Admin bằng currentUser
           }
         ]
       })
@@ -339,7 +382,7 @@ export default function OrderDetailsDialog({
             date: new Date().toISOString(),
             status: order.status,
             note: `${checked ? "Đã chuẩn bị" : "Hủy chuẩn bị"} sản phẩm: ${updatedItems.find(i => i.id === itemId)?.name}`,
-            updatedBy: "Admin"
+            updatedBy: currentUser // Thay thế Admin bằng currentUser
           }
         ]
       })
@@ -435,7 +478,7 @@ export default function OrderDetailsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto p-4 md:p-6">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="space-y-4">
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -447,9 +490,9 @@ export default function OrderDetailsDialog({
                 <Calendar className="w-4 h-4" />
                 <span>{new Date(order.date).toLocaleString('vi-VN')}</span>
                 <ChevronRight className="w-4 h-4" />
-                <Badge variant={ORDER_STATUS[order.status]?.color}>
+                <Badge variant={ORDER_STATUS[order.status as keyof typeof ORDER_STATUS]?.color as "default" | "destructive" | "outline" | "secondary"}>
                   <StatusIcon className="w-3 h-3 mr-1" />
-                  {ORDER_STATUS[order.status]?.label}
+                  {ORDER_STATUS[order.status as keyof typeof ORDER_STATUS]?.label}
                 </Badge>
               </div>
             </div>
@@ -498,7 +541,7 @@ export default function OrderDetailsDialog({
                   <div>
                     <div className="font-medium">{order.customerData?.name}</div>
                     <div className="text-sm text-gray-500">
-                      <Badge variant={order.customerData?.type === 'vip' ? 'success' : 'secondary'}>
+                      <Badge variant={order.customerData?.type === 'vip' ? 'default' : 'secondary'}>
                         {order.customerData?.type === 'vip' ? 'Khách VIP' : 'Khách thường'}
                       </Badge>
                     </div>
@@ -525,24 +568,37 @@ export default function OrderDetailsDialog({
               </div>
             </div>
 
+            {/* Order Note */}
+            {order.note && (
+              <div>
+                <Label className="text-base font-semibold">Ghi chú đơn hàng</Label>
+                <div className="mt-2 p-3 md:p-4 border rounded-lg">
+                  <div className="flex items-start space-x-2">
+                    <AlertCircle className="w-4 h-4 text-gray-400 mt-0.5" />
+                    <p className="text-sm text-gray-600">{order.note}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Payment Info */}
             <div>
               <Label className="text-base font-semibold">Thông tin thanh toán</Label>
               <div className="mt-2 p-3 md:p-4 border rounded-lg space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
-                    {React.createElement(PAYMENT_METHODS[order.paymentMethod]?.icon || CreditCard, {
+                    {React.createElement(PAYMENT_METHODS[order.paymentMethod as keyof typeof PAYMENT_METHODS]?.icon || CreditCard, {
                       className: "w-4 h-4 text-gray-500"
                     })}
                     <span>Phương thức:</span>
                   </div>
                   <span className="font-medium">
-                    {PAYMENT_METHODS[order.paymentMethod]?.label || 'Không xác định'}
+                    {PAYMENT_METHODS[order.paymentMethod as keyof typeof PAYMENT_METHODS]?.label || 'Không xác định'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-gray-600">
                   <span>Trạng thái:</span>
-                  <Badge variant={PAYMENT_STATUS[getPaymentStatus(order)]?.color}>
+                  <Badge variant={PAYMENT_STATUS[getPaymentStatus(order)]?.color as "destructive" | "default" | "outline" | "secondary"}>
                     {PAYMENT_STATUS[getPaymentStatus(order)]?.label}
                   </Badge>
                 </div>
@@ -598,7 +654,7 @@ export default function OrderDetailsDialog({
                             <div className="min-w-0">
                               <div className="font-medium truncate">{item.name}</div>
                               {preparedItems[item.id] && (
-                                <Badge variant="success" className="text-xs mt-1">
+                                <Badge variant="default" className="text-xs mt-1">
                                   <CheckCircle2 className="w-3 h-3 mr-1" />
                                   Đã chuẩn bị
                                 </Badge>
@@ -688,7 +744,7 @@ export default function OrderDetailsDialog({
                   </p>
                 </div>
                 {isPrepared && (
-                  <Badge variant="success" className="ml-auto">
+                  <Badge variant="secondary" className="ml-auto">
                     <CheckCircle2 className="w-3 h-3 mr-1" />
                     Đã chuẩn bị
                   </Badge>
@@ -732,14 +788,14 @@ export default function OrderDetailsDialog({
                 {order.history?.map((event, index) => (
                   <div key={index} className="flex items-start space-x-3 text-sm">
                     <div className="mt-1">
-                      {React.createElement(ORDER_STATUS[event.status]?.icon || AlertCircle, {
+                      {React.createElement(ORDER_STATUS[event.status as keyof typeof ORDER_STATUS]?.icon || AlertCircle, {
                         className: "w-5 h-5 text-gray-400"
                       })}
                     </div>
                     <div className="flex-1 space-y-1">
                       <div className="flex items-center justify-between">
-                        <Badge variant={ORDER_STATUS[event.status]?.color}>
-                          {ORDER_STATUS[event.status]?.label}
+                        <Badge variant={ORDER_STATUS[event.status as keyof typeof ORDER_STATUS]?.color as "default" | "destructive" | "secondary" | "outline"}>
+                          {ORDER_STATUS[event.status as keyof typeof ORDER_STATUS]?.label}
                         </Badge>
                         <span className="text-gray-500">
                           {new Date(event.date).toLocaleString('vi-VN')}

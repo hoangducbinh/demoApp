@@ -45,7 +45,7 @@ export default function CustomerDetailsDialog({
             <div className="mt-2 space-y-3">
               <div className="flex items-center space-x-2">
                 <Badge variant="outline">{customer.id}</Badge>
-                <Badge variant={customer.orderCount > 0 ? "success" : "secondary"}>
+                <Badge variant={customer.orderCount > 0 ? "default" : "secondary"}>
                   {customer.orderCount > 0 ? 'Đã mua hàng' : 'Chưa mua hàng'}
                 </Badge>
               </div>
@@ -119,8 +119,8 @@ export default function CustomerDetailsDialog({
                       </TableCell>
                       <TableCell>
                         <Badge variant={
-                          order.status === 'completed' ? 'success' :
-                          order.status === 'cancelled' ? 'destructive' :
+                          order.status === 'completed' ? 'default' :
+                          order.status === 'cancelled' ? 'destructive' : 
                           'secondary'
                         }>
                           {order.status === 'completed' ? 'Hoàn thành' :

@@ -7,7 +7,7 @@ export interface User {
 }
 
 export interface Customer {
-  id: string
+  id?: string
   name: string
   email: string
   phone: string
@@ -22,7 +22,7 @@ export interface Customer {
 }
 
 export interface Product {
-  id: string
+  id?: string
   name: string
   sku: string
   price: number
@@ -43,7 +43,7 @@ export interface OrderItem {
 }
 
 export interface Order {
-  id: string
+  id?: string
   customerId: string | null
   customerName?: string
   items: OrderItem[]
@@ -63,4 +63,16 @@ export interface OrderHistory {
   status: string
   updatedBy: string
   note: string
+}
+
+
+export interface LoginCredentials {
+  email: string;
+  password: string;
+}
+
+export interface AuthUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
 }

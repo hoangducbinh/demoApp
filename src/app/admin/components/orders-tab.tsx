@@ -14,9 +14,55 @@ import { db } from '@/lib/firebase'
 import { collection, onSnapshot, query, orderBy, doc, getDoc } from 'firebase/firestore'
 import OrderDetailsDialog from './order-details-dialog'
 import { Checkbox } from "@/components/ui/checkbox"
+import { OrderHistory } from '../types'
 
+interface OrderStatus {
+  label: string
+  color: 'default' | 'primary' | 'warning' | 'success' | 'destructive'
+}
 
-const ORDER_STATUS = {
+interface OrderItem {
+  id?: string
+  name: string
+  quantity: number
+  price: number
+}
+
+interface CustomerData {
+  id: string
+  name: string
+  phone: string
+  address: string
+}
+
+interface Order {
+  id: string
+  customer: string
+  customerData?: {
+    id: string
+    name: string
+    email: string
+    phone: string
+    type: 'normal' | 'vip'
+    status: 'active' | 'inactive'
+    address: string
+    avatar?: string
+    note?: string
+  }
+  items: OrderItem[]
+  subtotal: number
+  discount: number
+  tax: number
+  total: number
+  status: keyof typeof ORDER_STATUS
+  date: string
+  note: string
+  paymentMethod: string
+  isPrepared?: boolean
+  history?: OrderHistory[]
+}
+
+const ORDER_STATUS: Record<string, OrderStatus> = {
   pending: { label: 'Chờ xử lý', color: 'default' },
   confirmed: { label: 'Đã xác nhận', color: 'primary' },
   shipping: { label: 'Đang giao', color: 'warning' },
@@ -25,14 +71,14 @@ const ORDER_STATUS = {
 }
 
 // Thêm hàm chuyển số thành chữ
-const numberToWords = (number) => {
+const numberToWords = (number: number) => {
   const digits = ["không", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín"];
   const positions = ["", "nghìn", "triệu", "tỷ"];
 
   if (number === 0) return "không";
   if (!number) return "";
 
-  const readThreeDigits = (num) => {
+  const readThreeDigits = (num: number) => {
     const hundred = Math.floor(num / 100);
     const ten = Math.floor((num % 100) / 10);
     const unit = num % 10;
@@ -87,13 +133,13 @@ const numberToWords = (number) => {
 
 export default function OrdersTab() {
   const { toast } = useToast()
-  const [orders, setOrders] = useState([])
-  const [selectedOrder, setSelectedOrder] = useState(null)
+  const [orders, setOrders] = useState<Order[]>([])
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [showOrderDetails, setShowOrderDetails] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [dateFilter, setDateFilter] = useState("all")
-  const [selectedOrders, setSelectedOrders] = useState([])
+  const [statusFilter, setStatusFilter] = useState<'all' | keyof typeof ORDER_STATUS>("all")
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month'>('all')
+  const [selectedOrders, setSelectedOrders] = useState<string[]>([])
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -101,19 +147,19 @@ export default function OrdersTab() {
       const unsubscribe = onSnapshot(q, async (snapshot) => {
         const ordersData = await Promise.all(
           snapshot.docs.map(async (docSnapshot) => {
-            const orderData = docSnapshot.data()
+            const orderData = docSnapshot.data() as Omit<Order, 'id'>
             const customerRef = doc(db, 'customers', orderData.customer)
             const customerDoc = await getDoc(customerRef)
-            const customerData = customerDoc.exists() ? customerDoc.data() : null
+            const customerData = customerDoc.exists() ? customerDoc.data() as CustomerData : null
 
             return {
               id: docSnapshot.id,
               ...orderData,
               customerData: customerData ? {
-                id: customerDoc.id,
-                ...customerData
-              } : null
-            }
+                ...customerData,
+                id: customerDoc.id
+              } : undefined
+            } as Order
           })
         )
         setOrders(ordersData)
@@ -133,7 +179,7 @@ export default function OrdersTab() {
     // Search filter
     if (searchTerm) {
       matchesSearch = order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.customerData?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+        Boolean(order.customerData?.name?.toLowerCase().includes(searchTerm.toLowerCase()))
     }
 
     // Status filter
@@ -171,15 +217,15 @@ export default function OrdersTab() {
     return matchesSearch && matchesStatus && matchesDate
   })
 
-  const getTotalRevenue = (orders) => {
+  const getTotalRevenue = (orders: Order[]): number => {
     return orders.reduce((sum, order) => sum + (order.total || 0), 0)
   }
 
-  const getOrdersByStatus = (status) => {
+  const getOrdersByStatus = (status: keyof typeof ORDER_STATUS): number => {
     return orders.filter(order => order.status === status).length
   }
 
-  const handleSelectOrder = (orderId) => {
+  const handleSelectOrder = (orderId: string) => {
     setSelectedOrders(prev => {
       if (prev.includes(orderId)) {
         return prev.filter(id => id !== orderId)
@@ -196,7 +242,7 @@ export default function OrdersTab() {
     }
   }
 
-  const printOrders = (ordersToPrint) => {
+  const printOrders = (ordersToPrint: Order[]) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
       toast({
@@ -334,7 +380,7 @@ export default function OrdersTab() {
           </style>
         </head>
         <body>
-          ${ordersToPrint.map((order, pageIndex) => `
+          ${ordersToPrint.map((order) => `
             <div class="order">
               <div class="header-section">
                 <div class="company-name">Nhà Phân Phối Hàng Hóa Vũ Lệ</div>
@@ -454,18 +500,18 @@ export default function OrdersTab() {
   return (
     <div className="space-y-4">
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
         <Card>
           <CardContent className="pt-4">
-            <div className="flex justify-between">
+            <div className="flex flex-col md:flex-row md:justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-500">Tổng đơn hàng</p>
-                <p className="text-2xl font-bold">{orders.length}</p>
+                <p className="text-xs md:text-sm font-medium text-gray-500">Tổng đơn hàng</p>
+                <p className="text-lg md:text-2xl font-bold">{orders.length}</p>
               </div>
-              <div className="text-right">
-                <p className="text-sm font-medium text-gray-500">Doanh thu</p>
-                <p className="text-xl font-bold text-green-600">
-                  {getTotalRevenue(orders).toLocaleString('vi-VN')} VNĐ
+              <div className="md:text-right mt-2 md:mt-0">
+                <p className="text-xs md:text-sm font-medium text-gray-500">Doanh thu</p>
+                <p className="text-sm md:text-xl font-bold text-green-600">
+                  {getTotalRevenue(orders).toLocaleString('vi-VN')} đ
                 </p>
               </div>
             </div>
@@ -487,7 +533,7 @@ export default function OrdersTab() {
             <p className="text-sm font-medium text-gray-500">Đang giao</p>
             <div className="flex items-baseline justify-between">
               <p className="text-2xl font-bold">{getOrdersByStatus('shipping')}</p>
-              <Badge variant="warning">{((getOrdersByStatus('shipping') / orders.length) * 100).toFixed(1)}%</Badge>
+              <Badge variant="secondary">{((getOrdersByStatus('shipping') / orders.length) * 100).toFixed(1)}%</Badge>
             </div>
           </CardContent>
         </Card>
@@ -497,7 +543,7 @@ export default function OrdersTab() {
             <p className="text-sm font-medium text-gray-500">Hoàn thành</p>
             <div className="flex items-baseline justify-between">
               <p className="text-2xl font-bold">{getOrdersByStatus('completed')}</p>
-              <Badge variant="success">{((getOrdersByStatus('completed') / orders.length) * 100).toFixed(1)}%</Badge>
+              <Badge variant="secondary">{((getOrdersByStatus('completed') / orders.length) * 100).toFixed(1)}%</Badge>
             </div>
           </CardContent>
         </Card>
@@ -506,18 +552,18 @@ export default function OrdersTab() {
       {/* Filters */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Danh sách đơn hàng</CardTitle>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <CardTitle className="text-lg md:text-xl">Danh sách đơn hàng</CardTitle>
             <div className="flex gap-2">
               {selectedOrders.length > 0 && (
-                <Button variant="secondary" onClick={handlePrintSelected}>
-                  <Printer className="w-4 h-4 mr-2" />
-                  In {selectedOrders.length} đơn hàng
+                <Button variant="secondary" onClick={handlePrintSelected} size="sm">
+                  <Printer className="w-4 h-4 md:mr-2" />
+                  <span className="hidden md:inline">In {selectedOrders.length} đơn hàng</span>
                 </Button>
               )}
-              <Button variant="outline">
-                <FileSpreadsheet className="w-4 h-4 mr-2" />
-                Xuất Excel
+              <Button variant="outline" size="sm">
+                <FileSpreadsheet className="w-4 h-4 md:mr-2" />
+                <span className="hidden md:inline">Xuất Excel</span>
               </Button>
             </div>
           </div>
@@ -553,7 +599,10 @@ export default function OrdersTab() {
 
             <div>
               <Label>Thời gian</Label>
-              <Select value={dateFilter} onValueChange={setDateFilter}>
+              <Select 
+                value={dateFilter} 
+                onValueChange={(value: "month" | "week" | "all" | "today" | "yesterday") => setDateFilter(value)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Chọn thời gian" />
                 </SelectTrigger>
@@ -569,7 +618,7 @@ export default function OrdersTab() {
           </div>
 
           {/* Orders Table */}
-          <div className="rounded-md border">
+          <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -579,33 +628,73 @@ export default function OrdersTab() {
                       onCheckedChange={handleSelectAll}
                     />
                   </TableHead>
-                  <TableHead>Mã đơn hàng</TableHead>
-                  <TableHead>Khách hàng</TableHead>
-                  <TableHead>Ngày đặt</TableHead>
-                  <TableHead>Tổng tiền</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead className="text-right">Thao tác</TableHead>
+                  <TableHead>Thông tin đơn hàng</TableHead>
+                  <TableHead className="hidden md:table-cell">Khách hàng</TableHead>
+                  <TableHead className="hidden md:table-cell">Ngày đặt</TableHead>
+                  <TableHead className="hidden md:table-cell">Tổng tiền</TableHead>
+                  <TableHead className="hidden md:table-cell">Trạng thái</TableHead>
+                  <TableHead className="w-[50px]">
+                    <span className="hidden md:inline">Thao tác</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredOrders.map(order => (
-                  <TableRow key={order.id}>
+                  <TableRow key={order.id} className="group">
                     <TableCell>
                       <Checkbox
                         checked={selectedOrders.includes(order.id)}
                         onCheckedChange={() => handleSelectOrder(order.id)}
                       />
                     </TableCell>
-                    <TableCell className="font-medium">#{order.id}</TableCell>
-                    <TableCell>{order.customerData?.name}</TableCell>
                     <TableCell>
+                      <div className="space-y-1">
+                        {/* Mã đơn hàng */}
+                        <div className="font-medium">#{order.id}</div>
+                        
+                        {/* Thông tin mobile */}
+                        <div className="md:hidden space-y-1">
+                          {/* Khách hàng */}
+                          <div className="text-sm text-gray-500">
+                            {order.customerData?.name}
+                          </div>
+                          
+                          {/* Ngày và Tổng tiền */}
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-gray-500">
+                              {new Date(order.date).toLocaleDateString('vi-VN')}
+                            </span>
+                            <span className="font-medium">
+                              {order.total?.toLocaleString('vi-VN')} đ
+                            </span>
+                          </div>
+
+                          {/* Trạng thái */}
+                          <Badge 
+                            variant={ORDER_STATUS[order.status]?.color as "default" | "destructive" | "secondary" | "outline"}
+                            className="whitespace-nowrap"
+                          >
+                            {ORDER_STATUS[order.status]?.label}
+                          </Badge>
+                        </div>
+                      </div>
+                    </TableCell>
+                    
+                    {/* Desktop columns */}
+                    <TableCell className="hidden md:table-cell">
+                      {order.customerData?.name}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
                       {new Date(order.date).toLocaleDateString('vi-VN')}
                     </TableCell>
-                    <TableCell>
-                      {order.total?.toLocaleString('vi-VN')} VNĐ
+                    <TableCell className="hidden md:table-cell">
+                      {order.total?.toLocaleString('vi-VN')} đ
                     </TableCell>
-                    <TableCell>
-                      <Badge variant={ORDER_STATUS[order.status]?.color}>
+                    <TableCell className="hidden md:table-cell">
+                      <Badge 
+                        variant={ORDER_STATUS[order.status]?.color as "default" | "destructive" | "secondary" | "outline"}
+                        className="whitespace-nowrap"
+                      >
                         {ORDER_STATUS[order.status]?.label}
                       </Badge>
                     </TableCell>
@@ -632,8 +721,8 @@ export default function OrdersTab() {
       <OrderDetailsDialog
         open={showOrderDetails}
         onOpenChange={setShowOrderDetails}
-        order={selectedOrder}
+        order={selectedOrder as any}
       />
     </div>
   )
-} 
+}
